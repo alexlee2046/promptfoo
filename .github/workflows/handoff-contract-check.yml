@@ -1,0 +1,117 @@
+name: Handoff contract isolated validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: handoff-contract-isolated-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'alexlee2046/promptfoo' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SOURCE_SHA: cc3cc239978c3d78534e734da23994308f4df901
+      BASE_SHA: b4c2404a0dee93dcd4d53a323d6f32f87ee27558
+      EXPECTED_TREE: 65ba61ae7b7e2278f4383a668e4c80a34917c663
+      WORKFLOW_SHA: ${{ github.sha }}
+      PROMPTFOO_DISABLE_SHARING: 'true'
+      PROMPTFOO_DISABLE_TELEMETRY: 'true'
+      PROMPTFOO_DISABLE_UPDATE: 'true'
+      PROMPTFOO_DISABLE_REMOTE_GENERATION: 'true'
+      PROMPTFOO_CONFIG_DIR: ${{ runner.temp }}/handoff-state
+      NPM_CONFIG_AUDIT: 'false'
+      NPM_CONFIG_FUND: 'false'
+    steps:
+      - name: Checkout exact public candidate, not workflow branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: alexlee2046/promptfoo
+          ref: cc3cc239978c3d78534e734da23994308f4df901
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify source parent, tree and three-file scope
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          def git(*a):
+              return subprocess.check_output(['git', *a], text=True).strip()
+          assert git('rev-parse', 'HEAD') == os.environ['SOURCE_SHA']
+          assert git('rev-parse', 'HEAD^') == os.environ['BASE_SHA']
+          assert git('rev-parse', 'HEAD^{tree}') == os.environ['EXPECTED_TREE']
+          expected = [
+              'examples/eval-customer-support-rubric/README.md',
+              'examples/eval-customer-support-rubric/handoff-tests.json',
+              'examples/eval-customer-support-rubric/promptfooconfig.handoff.yaml',
+          ]
+          assert git('diff', '--name-only', 'HEAD^', 'HEAD').splitlines() == expected
+          proof = {'source': git('rev-parse', 'HEAD'), 'base': git('rev-parse', 'HEAD^'),
+                   'tree': git('rev-parse', 'HEAD^{tree}'), 'workflow': os.environ['WORKFLOW_SHA'],
+                   'files': {p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in expected}}
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'source-proof.json').write_text(json.dumps(proof, indent=2))
+          print(json.dumps(proof))
+          PY
+      - name: Exact repository Node version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install public dependencies without caller credentials
+        id: install
+        shell: bash
+        run: |
+          node --version
+          env -u GH_TOKEN -u GITHUB_TOKEN -u NODE_AUTH_TOKEN npm install -g npm@11.11.0 --registry=https://registry.npmjs.org/
+          env -u GH_TOKEN -u GITHUB_TOKEN -u NODE_AUTH_TOKEN npm ci --registry=https://registry.npmjs.org/
+      - name: Full repository local build
+        id: build
+        shell: bash
+        run: env -u GH_TOKEN -u GITHUB_TOKEN -u NODE_AUTH_TOKEN npm run build
+      - name: Run only the nine echo contract cases
+        id: echo
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          env -u GH_TOKEN -u GITHUB_TOKEN -u NODE_AUTH_TOKEN npm run local -- eval -c examples/eval-customer-support-rubric/promptfooconfig.handoff.yaml --no-cache -o "$RUNNER_TEMP/handoff-results.json"
+      - name: Inspect all exported rows, not just CLI exit
+        if: always() && steps.echo.outcome == 'success'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          data = json.loads((root / 'handoff-results.json').read_text())
+          result = data.get('results', data)
+          stats = result.get('stats', {}) if isinstance(result, dict) else {}
+          rows = result.get('results') if isinstance(result, dict) else result
+          assert isinstance(rows, list) and len(rows) == 9
+          assert all(r.get('success') is True and not r.get('error') for r in rows)
+          assert all(r.get('provider', {}).get('id') == 'echo' for r in rows)
+          costs = [r.get('response', {}).get('cost') for r in rows]
+          assert all(c is None or c == 0 for c in costs)
+          summary = {'source': os.environ['SOURCE_SHA'], 'base': os.environ['BASE_SHA'],
+                     'workflow': os.environ['WORKFLOW_SHA'], 'echo_provider_calls': len(rows),
+                     'passed_rows': 9, 'error_rows': 0, 'llm_invocations': 0,
+                     'provider_ids': sorted({r['provider']['id'] for r in rows}),
+                     'cost_metadata': costs, 'stats': stats,
+                     'scope': 'synthetic echo output contract, not model quality or real handoff'}
+          (root / 'handoff-summary.json').write_text(json.dumps(summary, indent=2))
+          print(json.dumps(summary))
+          PY
+      - name: Retain public synthetic result evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: handoff-contract-evidence
+          path: |
+            ${{ runner.temp }}/source-proof.json
+            ${{ runner.temp }}/handoff-results.json
+            ${{ runner.temp }}/handoff-summary.json
+          if-no-files-found: warn
+          retention-days: 7
