@@ -12,6 +12,8 @@ concurrency:
 
 jobs:
   validate:
+    permissions:
+      contents: read
     if: github.repository == 'alexlee2046/promptfoo' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 35
