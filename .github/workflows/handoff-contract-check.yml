@@ -26,7 +26,7 @@ jobs:
       PROMPTFOO_DISABLE_TELEMETRY: 'true'
       PROMPTFOO_DISABLE_UPDATE: 'true'
       PROMPTFOO_DISABLE_REMOTE_GENERATION: 'true'
-      PROMPTFOO_CONFIG_DIR: ${{ runner.temp }}/handoff-state
+      PROMPTFOO_CONFIG_DIR: /tmp/promptfoo-handoff-state
       NPM_CONFIG_AUDIT: 'false'
       NPM_CONFIG_FUND: 'false'
     steps:
