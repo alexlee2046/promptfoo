@@ -62,49 +62,25 @@ Reply in {{language}}. Use only the supplied account facts and do not claim an a
 Then remove the canned `reply` column from the CSV. The rubrics already use
 `customer_message`, `context`, and `language`, so the grading side needs no changes.
 
-## API-key-free handoff contract companion
+## Offline handoff example
 
-The rubric above grades reply quality with a model. The companion
-`promptfooconfig.handoff.yaml` instead demonstrates deterministic checks on
-structured handoff decisions, using `echo` and nine synthetic recorded outputs.
-It makes no model or grading API calls and requires no credentials.
+`promptfooconfig.handoff.yaml` uses `echo` to replay nine synthetic support decisions. Each case in `handoff-tests.json` supplies the observed facts and the response to grade. All nine should pass without API credentials.
 
-After initializing this example, run:
+After initializing the example, run:
 
 ```sh
 npx promptfoo@latest eval -c promptfooconfig.handoff.yaml --no-cache -o handoff-results.json
 ```
 
-For contributors, run from the repository root against the local build:
+From the repository root, use the local CLI:
 
 ```sh
 npm run local -- eval -c examples/eval-customer-support-rubric/promptfooconfig.handoff.yaml --no-cache -o handoff-results.json
 ```
 
-The expected result is nine passing cases with no provider errors. Inspect the
-exported JSON, not only the process exit code.
+A customer request for a person, missing or conflicting sources, or a business exception requires a handoff. It stays `pending` until an authorized receiver receives the context and acknowledges it. Approving a refund or a price change is a separate decision. The fixtures all require `businessApproved: false`.
 
-The illustrative policy requires a handoff when the customer asks for a person,
-applicable sources are missing or conflicting, or a business exception needs
-approval. A handoff is `accepted` only if an authorized receiver has the context
-and acknowledges it. Otherwise it remains `pending`. Receiving context, queue
-assignment and acknowledging receipt are not business approval; the fixtures
-never approve a refund, price or delivery promise.
-
-The JSON-schema assertion checks the output shape. The JavaScript assertion
-checks decisions against the input facts and fails closed on missing or
-wrongly typed facts. Changing `handoffRequired`, marking a pending transfer
-`accepted`, or setting `businessApproved` to true should fail the contract.
-
-These are assertion examples, not evidence of a model's accuracy or a real
-handoff. Other policies may ask a clarifying question instead of immediately
-escalating a missing-source case; adapt the contract to the assistant's actual
-scope. To evaluate your assistant, replace `echo` and the recorded-output prompt
-with your approved provider and an input prompt containing the case facts, then
-remove `recorded_response`. Keep receiver authority and acknowledgement as
-externally observed facts, not values the model can authorize for itself.
-Do not send real customer records or credentials to a new provider without the
-appropriate permission, and check its costs before running it.
+JSON Schema checks the response shape. The `handoff_contract` assertion checks the decision against the supplied facts. To try a failing case, change a pending response to `accepted`. When adapting the example to a live provider, get authorization and acknowledgement from the receiving system.
 
 Based on an evaluation study of Spanish telecoms and energy support chatbots:
 https://github.com/kakkarprerna/support-bot-eval

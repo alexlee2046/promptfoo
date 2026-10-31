@@ -1,7 +1,6 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
 description: Check support handoff decisions without model calls
 
-# Recorded synthetic decisions, not customer messages or live model outputs.
 prompts:
   - '{{recorded_response}}'
 
@@ -15,11 +14,7 @@ defaultTest:
       value:
         type: object
         additionalProperties: false
-        required:
-          - handoffRequired
-          - handoffState
-          - businessApproved
-          - unresolved
+        required: [handoffRequired, handoffState, businessApproved, unresolved]
         properties:
           handoffRequired:
             type: boolean
@@ -31,6 +26,7 @@ defaultTest:
             type: array
             items:
               type: string
+              pattern: '\S'
     - type: javascript
       metric: handoff_contract
       value: |
@@ -43,14 +39,9 @@ defaultTest:
           ];
           if (!booleanFacts.every((key) => typeof facts[key] === 'boolean')) return false;
           if (!['supported', 'missing', 'conflict'].includes(facts.sourceStatus)) return false;
-          if (!decision || typeof decision !== 'object' || Array.isArray(decision)) return false;
-          const keys = Object.keys(decision).sort().join(',');
-          if (keys !== 'businessApproved,handoffRequired,handoffState,unresolved') return false;
-          if (!Array.isArray(decision.unresolved) ||
-              !decision.unresolved.every((item) => typeof item === 'string' && item.trim())) return false;
           const required = facts.customerRequestedHuman ||
             facts.sourceStatus !== 'supported' || facts.requiresApproval;
-          const accepted = required && facts.receiverAuthorized &&
+          const accepted = facts.receiverAuthorized &&
             facts.contextDelivered && facts.receiverAcknowledged;
           const state = !required ? 'not_needed' : accepted ? 'accepted' : 'pending';
           return decision.handoffRequired === required && decision.handoffState === state &&
